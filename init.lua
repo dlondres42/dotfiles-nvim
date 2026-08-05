@@ -143,6 +143,10 @@ do
   -- Decrease mapped sequence wait time
   vim.o.timeoutlen = 300
 
+  -- Show partially-typed key sequences (e.g. the pending 'j' while waiting on 'jk')
+  -- in the bottom right corner, so multi-key mappings are visible as you type them
+  vim.o.showcmd = true
+
   -- Configure how new splits should be opened
   vim.o.splitright = true
   vim.o.splitbelow = true
@@ -234,6 +238,12 @@ do
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
   vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
+  -- Save with Ctrl-S in normal and insert mode
+  vim.keymap.set({ 'n', 'i' }, '<C-s>', '<cmd>write<CR>', { desc = 'Save file' })
+
+  -- Exit insert mode by typing jk, as an alternative to physically pressing Esc
+  vim.keymap.set('i', 'jk', '<Esc>', { desc = 'Exit insert mode' })
+
   -- NOTE: Some terminals have colliding keymaps or are not able to send distinct keycodes
   -- vim.keymap.set("n", "<C-S-h>", "<C-w>H", { desc = "Move window to the left" })
   -- vim.keymap.set("n", "<C-S-l>", "<C-w>L", { desc = "Move window to the right" })
@@ -250,6 +260,20 @@ do
     desc = 'Highlight when yanking (copying) text',
     group = vim.api.nvim_create_augroup('kickstart-highlight-yank', { clear = true }),
     callback = function() vim.hl.on_yank() end,
+  })
+
+  -- Go uses real tab characters (gofmt/goimports enforce this), but nvim's
+  -- default tabstop of 8 renders each nesting level very wide. Shrinking the
+  -- display width doesn't change the file's bytes, only how deep it looks.
+  vim.api.nvim_create_autocmd('FileType', {
+    desc = 'Narrower tab display width for Go',
+    group = vim.api.nvim_create_augroup('kickstart-go-indent', { clear = true }),
+    pattern = 'go',
+    callback = function()
+      vim.bo.tabstop = 4
+      vim.bo.shiftwidth = 4
+      vim.bo.softtabstop = 4
+    end,
   })
 end
 
@@ -385,6 +409,7 @@ do
   vim.pack.add { gh 'folke/tokyonight.nvim' }
   ---@diagnostic disable-next-line: missing-fields
   require('tokyonight').setup {
+    transparent = true,
     styles = {
       comments = { italic = false }, -- Disable italics in comments
     },
@@ -693,8 +718,8 @@ do
   ---@type table<string, vim.lsp.Config>
   local servers = {
     -- clangd = {},
-    -- gopls = {},
-    -- pyright = {},
+    gopls = {},
+    pyright = {},
     -- rust_analyzer = {},
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -760,6 +785,9 @@ do
   local ensure_installed = vim.tbl_keys(servers or {})
   vim.list_extend(ensure_installed, {
     -- You can add other tools here that you want Mason to install
+    'goimports',
+    'ruff',
+    'golangci-lint',
   })
 
   require('mason-tool-installer').setup { ensure_installed = ensure_installed }
@@ -782,8 +810,8 @@ do
     format_on_save = function(bufnr)
       -- You can specify filetypes to autoformat on save here:
       local enabled_filetypes = {
-        -- lua = true,
-        -- python = true,
+        go = true,
+        python = true,
       }
       if enabled_filetypes[vim.bo[bufnr].filetype] then
         return { timeout_ms = 500 }
@@ -798,7 +826,8 @@ do
     formatters_by_ft = {
       -- rust = { 'rustfmt' },
       -- Conform can also run multiple formatters sequentially
-      -- python = { "isort", "black" },
+      go = { 'goimports' }, -- superset of gofmt: formats + organizes imports
+      python = { 'ruff_format' },
       --
       -- You can use 'stop_after_first' to run the first available formatter from the list
       -- javascript = { "prettierd", "prettier", stop_after_first = true },
@@ -852,7 +881,7 @@ do
       -- <c-k>: Toggle signature help
       --
       -- See `:help blink-cmp-config-keymap` for defining your own keymap
-      preset = 'default',
+      preset = 'super-tab',
 
       -- For more advanced Luasnip keymaps (e.g. selecting choice nodes, expansion) see:
       --    https://github.com/L3MON4D3/LuaSnip?tab=readme-ov-file#keymaps
@@ -953,6 +982,38 @@ do
 end
 
 -- ============================================================
+-- SECTION 9b: TREESITTER TEXTOBJECTS
+-- Semantic select/move for functions, classes, parameters
+-- ============================================================
+do
+  vim.pack.add { { src = gh 'nvim-treesitter/nvim-treesitter-textobjects', version = 'main' } }
+
+  require('nvim-treesitter-textobjects').setup {
+    select = { lookahead = true },
+    move = { set_jumps = true },
+  }
+
+  local select_obj = require('nvim-treesitter-textobjects.select').select_textobject
+  local goto_next_start = require('nvim-treesitter-textobjects.move').goto_next_start
+  local goto_previous_start = require('nvim-treesitter-textobjects.move').goto_previous_start
+
+  -- Select (works with any operator: vaf, daf, caf, yaf, ...)
+  vim.keymap.set({ 'x', 'o' }, 'af', function() select_obj('@function.outer', 'textobjects') end, { desc = 'around function' })
+  vim.keymap.set({ 'x', 'o' }, 'if', function() select_obj('@function.inner', 'textobjects') end, { desc = 'inside function' })
+  vim.keymap.set({ 'x', 'o' }, 'ac', function() select_obj('@class.outer', 'textobjects') end, { desc = 'around class' })
+  vim.keymap.set({ 'x', 'o' }, 'ic', function() select_obj('@class.inner', 'textobjects') end, { desc = 'inside class' })
+  vim.keymap.set({ 'x', 'o' }, 'aa', function() select_obj('@parameter.outer', 'textobjects') end, { desc = 'around parameter' })
+  vim.keymap.set({ 'x', 'o' }, 'ia', function() select_obj('@parameter.inner', 'textobjects') end, { desc = 'inside parameter' })
+
+  -- Move to next/previous start of a function or parameter
+  -- (avoiding ]c/[c since those are the conventional gitsigns hunk-nav keys)
+  vim.keymap.set({ 'n', 'x', 'o' }, ']f', function() goto_next_start('@function.outer', 'textobjects') end, { desc = 'Next function' })
+  vim.keymap.set({ 'n', 'x', 'o' }, '[f', function() goto_previous_start('@function.outer', 'textobjects') end, { desc = 'Previous function' })
+  vim.keymap.set({ 'n', 'x', 'o' }, ']a', function() goto_next_start('@parameter.inner', 'textobjects') end, { desc = 'Next parameter' })
+  vim.keymap.set({ 'n', 'x', 'o' }, '[a', function() goto_previous_start('@parameter.inner', 'textobjects') end, { desc = 'Previous parameter' })
+end
+
+-- ============================================================
 -- SECTION 10: OPTIONAL EXAMPLES / NEXT STEPS
 -- kickstart.plugins.* examples
 -- ============================================================
@@ -968,15 +1029,15 @@ do
   --
   -- require 'kickstart.plugins.debug'
   -- require 'kickstart.plugins.indent_line'
-  -- require 'kickstart.plugins.lint'
+  require 'kickstart.plugins.lint'
   -- require 'kickstart.plugins.autopairs'
-  -- require 'kickstart.plugins.neo-tree'
+  require 'kickstart.plugins.neo-tree'
   -- require 'kickstart.plugins.gitsigns' -- adds gitsigns recommended keymaps
 
   -- NOTE: You can add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
-  -- require 'custom.plugins'
+  require 'custom.plugins'
 end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
