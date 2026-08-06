@@ -98,8 +98,10 @@ do
   vim.g.mapleader = ' '
   vim.g.maplocalleader = ' '
 
-  -- Set to true if you have a Nerd Font installed and selected in the terminal
-  vim.g.have_nerd_font = false
+  -- Set to true if you have a Nerd Font installed and selected in the terminal.
+  -- The "Symbols Only" Nerd Font works too: it registers as a fontconfig
+  -- fallback, so glyphs render without changing the terminal's own font.
+  vim.g.have_nerd_font = true
 
   -- [[ Setting options ]]
   --  See `:help vim.o`
@@ -994,8 +996,9 @@ do
   }
 
   local select_obj = require('nvim-treesitter-textobjects.select').select_textobject
-  local goto_next_start = require('nvim-treesitter-textobjects.move').goto_next_start
-  local goto_previous_start = require('nvim-treesitter-textobjects.move').goto_previous_start
+  local move = require 'nvim-treesitter-textobjects.move'
+  local goto_next_start, goto_previous_start = move.goto_next_start, move.goto_previous_start
+  local goto_next_end, goto_previous_end = move.goto_next_end, move.goto_previous_end
 
   -- Select (works with any operator: vaf, daf, caf, yaf, ...)
   vim.keymap.set({ 'x', 'o' }, 'af', function() select_obj('@function.outer', 'textobjects') end, { desc = 'around function' })
@@ -1011,6 +1014,48 @@ do
   vim.keymap.set({ 'n', 'x', 'o' }, '[f', function() goto_previous_start('@function.outer', 'textobjects') end, { desc = 'Previous function' })
   vim.keymap.set({ 'n', 'x', 'o' }, ']a', function() goto_next_start('@parameter.inner', 'textobjects') end, { desc = 'Next parameter' })
   vim.keymap.set({ 'n', 'x', 'o' }, '[a', function() goto_previous_start('@parameter.inner', 'textobjects') end, { desc = 'Previous parameter' })
+
+  -- Function *ends*. In Go especially, the interesting part of a long function
+  -- is the tail, and ]f only ever lands you on the signature.
+  vim.keymap.set({ 'n', 'x', 'o' }, ']F', function() goto_next_end('@function.outer', 'textobjects') end, { desc = 'Next function end' })
+  vim.keymap.set({ 'n', 'x', 'o' }, '[F', function() goto_previous_end('@function.outer', 'textobjects') end, { desc = 'Previous function end' })
+
+  -- Block-level motions. `@class` resolves to type/struct/interface decls in Go
+  -- and to real classes in Python, so ]t is meaningful in both.
+  local block_motions = {
+    b = { '@block.outer', 'block' },
+    n = { '@conditional.outer', 'conditional' },
+    o = { '@loop.outer', 'loop' },
+    t = { '@class.outer', 'type/class' },
+  }
+  for key, spec in pairs(block_motions) do
+    local capture, label = spec[1], spec[2]
+    vim.keymap.set({ 'n', 'x', 'o' }, ']' .. key, function() goto_next_start(capture, 'textobjects') end, { desc = 'Next ' .. label })
+    vim.keymap.set({ 'n', 'x', 'o' }, '[' .. key, function() goto_previous_start(capture, 'textobjects') end, { desc = 'Previous ' .. label })
+  end
+end
+
+-- ============================================================
+-- SECTION 9c: INDENT SCOPE
+-- Brace-free block navigation, which is what Python needs
+-- ============================================================
+do
+  -- mini.nvim is already installed in SECTION 4; this just enables another module.
+  local indentscope = require 'mini.indentscope'
+  indentscope.setup {
+    -- Keep the motions, drop the animated guide -- it redraws on every cursor move.
+    draw = { animation = indentscope.gen_animation.none() },
+    mappings = {
+      goto_top = '[i',
+      goto_bottom = ']i',
+      -- Upstream defaults here are ii/ai, but mini.ai already owns `ii` for
+      -- inside_next (SECTION 4). Capital I keeps both working:
+      --   diI - delete the indented body      (Python for/if body)
+      --   daI - same, plus the header/border lines
+      object_scope = 'iI',
+      object_scope_with_border = 'aI',
+    },
+  }
 end
 
 -- ============================================================
