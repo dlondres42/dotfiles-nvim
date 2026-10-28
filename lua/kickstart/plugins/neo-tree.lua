@@ -15,6 +15,11 @@ require('neo-tree').setup {
     window = {
       mappings = {
         ['\\'] = 'close_window',
+        ['Y'] = function(state)
+          local path = state.tree:get_node():get_id() -- absolute path
+          vim.fn.setreg('+', path)
+          vim.notify('Copied: ' .. path)
+        end,
       },
     },
   },

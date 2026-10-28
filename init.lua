@@ -720,7 +720,9 @@ do
   ---@type table<string, vim.lsp.Config>
   local servers = {
     -- clangd = {},
-    gopls = {},
+    -- Use the go-installed gopls (built with the system Go toolchain) instead of Mason's,
+    -- so it understands the latest language features. Update with: go install golang.org/x/tools/gopls@latest
+    gopls = { cmd = { vim.fn.expand '~/go/bin/gopls' } },
     pyright = {},
     -- rust_analyzer = {},
     --
@@ -784,7 +786,9 @@ do
   --    :Mason
   --
   -- You can press `g?` for help in this menu.
-  local ensure_installed = vim.tbl_keys(servers or {})
+  local ensure_installed = vim.tbl_filter(function(name)
+    return name ~= 'gopls' -- installed via `go install`, not Mason (see servers.gopls)
+  end, vim.tbl_keys(servers or {}))
   vim.list_extend(ensure_installed, {
     -- You can add other tools here that you want Mason to install
     'goimports',
@@ -829,7 +833,7 @@ do
       -- rust = { 'rustfmt' },
       -- Conform can also run multiple formatters sequentially
       go = { 'goimports' }, -- superset of gofmt: formats + organizes imports
-      python = { 'ruff_format' },
+      python = { 'ruff_organize_imports', 'ruff_format' }, -- sort imports (I001), then format
       --
       -- You can use 'stop_after_first' to run the first available formatter from the list
       -- javascript = { "prettierd", "prettier", stop_after_first = true },
